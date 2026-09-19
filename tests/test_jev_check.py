@@ -44,6 +44,9 @@ class JevCheckTests(unittest.TestCase):
         self.assertEqual(payload["model"], "jev-latest")
         self.assertEqual(payload["questions"]["authorship"]["type"], "choice")
         self.assertIn("uncertain", payload["questions"]["authorship"]["criteria"])
+        self.assertEqual(payload["questions"]["personal_specificity"]["type"], "score")
+        self.assertEqual(payload["questions"]["formulaic_style"]["type"], "noul")
+        self.assertEqual(payload["questions"]["concrete_evidence"]["type"], "noul")
         self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
 
     def test_read_text_from_stdin(self):
