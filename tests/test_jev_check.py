@@ -52,6 +52,19 @@ class JevCheckTests(unittest.TestCase):
         self.assertEqual(payload["questions"]["concrete_evidence"]["type"], "noul")
         self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
 
+    def test_markdown_chunks_keep_frontmatter_in_full_mode(self):
+        text = "---\ntitle: Test\n---\n\n# First\n\nOne paragraph.\n\nTwo paragraphs.\n\n## Second\n\nAnother paragraph."
+        chunks = jev_check.markdown_chunks(text, "paragraph", True)
+        self.assertEqual(len(chunks), 3)
+        self.assertIn("title: Test", chunks[0]["text"])
+        self.assertEqual(chunks[0]["section"], "First")
+        self.assertEqual(chunks[2]["section"], "Second")
+
+    def test_markdown_chunks_can_make_sections(self):
+        text = "# First\n\nOne.\n\n## Second\n\nTwo."
+        chunks = jev_check.markdown_chunks(text, "section", False)
+        self.assertEqual([chunk["section"] for chunk in chunks], ["First", "Second"])
+
     def test_body_mode_removes_frontmatter_only_when_requested(self):
         with patch("builtins.open", mock_open(read_data="---\ntitle: Test\n---\n\nBody")):
             self.assertIn("title: Test", jev_check.read_text("article.md", "full"))

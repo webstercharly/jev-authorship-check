@@ -1,8 +1,8 @@
 # Jev authorship check
 
-A small experiment using [Jev](https://typesafe.ai/) to classify Markdown as human-written, AI-assisted, AI-generated, or uncertain.
+A small experiment using [Jev](https://typesafe.ai/) to inspect Markdown as human-written, AI-assisted, AI-generated, or uncertain.
 
-It also asks for structured signals in the same request:
+It asks for structured signals in the same request:
 
 - human authorship
 - meaningful AI assistance
@@ -10,6 +10,8 @@ It also asks for structured signals in the same request:
 - personal specificity
 - formulaic or templated style
 - concrete evidence such as events, measurements or tools
+
+It can judge a whole file or split it into Markdown sections or paragraphs so that differences in writing style can be located.
 
 This is not an AI detector you should trust as evidence. It is a quick way to see whether Jev gives a useful signal for a particular set of examples.
 
@@ -22,7 +24,7 @@ export TYPESAFE_API_KEY='your-key'
 python3 jev_check.py article.md
 ```
 
-By default, Markdown is sent exactly as supplied, including Astro frontmatter.
+By default, the complete Markdown is sent, including Astro frontmatter.
 
 To classify only the article body while leaving the source file untouched:
 
@@ -30,27 +32,41 @@ To classify only the article body while leaving the source file untouched:
 python3 jev_check.py article.md --state body
 ```
 
-Or pipe text into it:
+## Inspect sections or paragraphs
+
+Judge each Markdown section:
 
 ```bash
-printf 'Some text to check.' | python3 jev_check.py
+python3 jev_check.py article.md --granularity section --state body
 ```
+
+Judge each paragraph:
+
+```bash
+python3 jev_check.py article.md --granularity paragraph --state body
+```
+
+Chunked output is one JSON object per line and includes the section name, paragraph index, chunk position and word count. Add `--include-text` when you want the chunk text in the output.
 
 ## Run a batch
 
 Pass several files directly:
 
 ```bash
-python3 jev_check.py article-one.md article-two.md
+python3 jev_check.py article-one.md article-two.md --granularity paragraph
 ```
 
 Or use a recursive glob:
 
 ```bash
-python3 jev_check.py --glob 'personal-site/src/content/blog/_drafts/*.md'
+python3 jev_check.py --glob 'personal-site/src/content/blog/_drafts/*.md' --granularity paragraph --state body
 ```
 
-Batch mode prints one JSON object per line, which makes the output easy to save or process with another script. Each result includes the authorship label, probabilities, confidence and all structured signals.
+The output can be saved as JSONL for later review:
+
+```bash
+python3 jev_check.py --glob '*.md' --granularity paragraph --state body > results.jsonl
+```
 
 ## Tests
 

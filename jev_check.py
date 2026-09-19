@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -63,6 +64,48 @@ def body_only(text: str) -> str:
     return re.sub(r"\A---\n.*?\n---\n", "", text, count=1, flags=re.DOTALL).strip()
 
 
+def split_frontmatter(text: str) -> tuple[str, str]:
+    match = re.match(r"\A---\n.*?\n---\n", text, flags=re.DOTALL)
+    if not match:
+        return "", text
+    return match.group(0).strip(), text[match.end():]
+
+
+def markdown_chunks(text: str, granularity: str, include_frontmatter: bool) -> list[dict]:
+    frontmatter, body = split_frontmatter(text)
+    lines = body.splitlines()
+    sections = []
+    current_heading = "Introduction"
+    current_lines = []
+    in_fence = False
+
+    for line in lines:
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", line) if not in_fence else None
+        if heading:
+            sections.append((current_heading, "\n".join(current_lines).strip()))
+            current_heading = heading.group(2)
+            current_lines = []
+        else:
+            current_lines.append(line)
+    sections.append((current_heading, "\n".join(current_lines).strip()))
+    sections = [(heading, content) for heading, content in sections if content]
+
+    chunks = []
+    if granularity == "section":
+        chunks = [{"section": heading, "paragraph_index": None, "text": content} for heading, content in sections]
+    else:
+        for heading, content in sections:
+            paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
+            for index, paragraph in enumerate(paragraphs, start=1):
+                chunks.append({"section": heading, "paragraph_index": index, "text": paragraph})
+
+    if include_frontmatter and frontmatter and chunks:
+        chunks[0]["text"] = f"{frontmatter}\n\n{chunks[0]['text']}"
+    return chunks
+
+
 def request_jev(text: str, api_key: str) -> dict:
     payload = {"model": "jev-latest", "state": text, "questions": QUESTIONS}
     body = json.dumps(payload).encode("utf-8")
@@ -75,8 +118,15 @@ def request_jev(text: str, api_key: str) -> dict:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code not in (429, 529) or attempt == 2:
+                raise
+            time.sleep(2**attempt)
+    raise RuntimeError("Jev request failed after retries")
 
 
 def simplify_result(result: dict) -> dict:
@@ -112,14 +162,39 @@ def expand_paths(paths: list[str], patterns: list[str]) -> list[str]:
     return unique
 
 
-def classify_file(path: str, api_key: str, state_mode: str) -> dict:
-    text = read_text(path, state_mode)
+def classify(path: str | None, text: str, api_key: str, args: argparse.Namespace, metadata: dict) -> dict:
     if not text.strip():
-        raise ValueError(f"The input text is empty: {path}")
+        raise ValueError(f"The input text is empty: {path or 'stdin'}")
     result = simplify_result(request_jev(text, api_key))
-    result["file"] = path
-    result["state"] = state_mode
+    result.update(metadata)
+    if path:
+        result["file"] = path
     return result
+
+
+def classify_file(path: str, api_key: str, args: argparse.Namespace) -> list[dict]:
+    with open(path, encoding="utf-8") as file:
+        original = file.read()
+    text = body_only(original) if args.state == "body" else original
+    if args.granularity == "file":
+        return [classify(path, text, api_key, args, {"state": args.state, "granularity": "file"})]
+
+    chunks = markdown_chunks(original if args.state == "full" else body_only(original), args.granularity, args.state == "full")
+    results = []
+    for index, chunk in enumerate(chunks, start=1):
+        metadata = {
+            "state": args.state,
+            "granularity": args.granularity,
+            "chunk_index": index,
+            "chunk_count": len(chunks),
+            "section": chunk["section"],
+            "paragraph_index": chunk["paragraph_index"],
+            "word_count": len(chunk["text"].split()),
+        }
+        if args.include_text:
+            metadata["text"] = chunk["text"]
+        results.append(classify(path, chunk["text"], api_key, args, metadata))
+    return results
 
 
 def main() -> int:
@@ -127,11 +202,14 @@ def main() -> int:
     parser.add_argument("files", nargs="*", help="text files to classify")
     parser.add_argument("--glob", action="append", default=[], help="glob pattern; may be repeated")
     parser.add_argument(
-        "--state",
-        choices=("full", "body"),
-        default="full",
+        "--state", choices=("full", "body"), default="full",
         help="send full input including frontmatter, or strip Astro frontmatter first",
     )
+    parser.add_argument(
+        "--granularity", choices=("file", "section", "paragraph"), default="file",
+        help="judge the whole file, each Markdown section, or each paragraph",
+    )
+    parser.add_argument("--include-text", action="store_true", help="include chunk text in chunked output")
     args = parser.parse_args()
 
     try:
@@ -140,11 +218,13 @@ def main() -> int:
             raise ValueError("Set TYPESAFE_API_KEY before making a Jev request")
 
         if args.files or args.glob:
-            for path in expand_paths(args.files, args.glob):
-                print(json.dumps(classify_file(path, api_key, args.state)))
+            paths = expand_paths(args.files, args.glob)
+            for path in paths:
+                for result in classify_file(path, api_key, args):
+                    print(json.dumps(result))
         else:
-            result = simplify_result(request_jev(read_text(None, args.state), api_key))
-            result["state"] = args.state
+            text = read_text(None, args.state)
+            result = classify(None, text, api_key, args, {"state": args.state, "granularity": "file"})
             print(json.dumps(result, indent=2))
     except (OSError, ValueError, urllib.error.HTTPError, urllib.error.URLError) as error:
         print(f"error: {error}", file=sys.stderr)
