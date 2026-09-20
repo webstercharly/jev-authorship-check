@@ -29,6 +29,31 @@ class BlogReviewTests(unittest.TestCase):
         }
         self.assertIn("concrete consequence", jev_blog_review.editorial_question(result))
 
+    def test_split_sentences_preserves_sentence_text(self):
+        text = "I checked Telegram. The report had not arrived. Memory was 3.7 GB."
+        self.assertEqual(
+            jev_blog_review.split_sentences(text),
+            [
+                "I checked Telegram.",
+                "The report had not arrived.",
+                "Memory was 3.7 GB.",
+            ],
+        )
+
+    def test_sentence_report_drills_into_shortlisted_paragraph(self):
+        result = {
+            "file": "/tmp/article.md",
+            "section": "Introduction",
+            "paragraph_index": 1,
+            "text": "I checked Telegram. The report had not arrived.",
+            "label": "uncertain",
+            "signals": {"generic_language": {"noul": 0.2}},
+        }
+        report = jev_blog_review.render_sentence_report([result])
+        self.assertIn("1. I checked Telegram.", report)
+        self.assertIn("2. The report had not arrived.", report)
+        self.assertIn("Jev was uncertain", report)
+
     def test_render_report_keeps_blog_text_and_signals_together(self):
         result = {
             "file": "/tmp/article.md",

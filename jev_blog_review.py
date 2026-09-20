@@ -9,6 +9,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -156,6 +157,39 @@ def render_shortlist_report(results: list[dict], generic_threshold: float = 0.7)
     return "\n".join(lines)
 
 
+def split_sentences(text: str) -> list[str]:
+    """Split a prose paragraph for manual review while preserving its wording."""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9`'\"“])", text.strip())
+    return [part.strip() for part in parts if part.strip()]
+
+
+def render_sentence_report(results: list[dict], generic_threshold: float = 0.7) -> str:
+    """Render a sentence-level drill-down for the human rewrite shortlist."""
+    selected = [result for result in results if shortlist_reasons(result, generic_threshold)]
+    lines = [
+        "# Jev sentence rewrite drill-down",
+        "",
+        "These sentences come from paragraphs selected for a human rewrite pass. Jev selected the parent paragraph; the sentence split is a navigation aid, not a sentence-level judgement.",
+        "",
+    ]
+    if not selected:
+        lines.extend(["No paragraphs met the shortlist criteria.", ""])
+        return "\n".join(lines)
+    for number, result in enumerate(selected, 1):
+        reasons = "; ".join(shortlist_reasons(result, generic_threshold))
+        lines.extend([
+            f"## {number}. {Path(result.get('file', 'stdin')).name} — {result.get('section', 'Introduction')} — paragraph {result.get('paragraph_index', number)}",
+            "",
+            f"- Why the paragraph was selected: {reasons}",
+            f"- Human question: {editorial_question(result)}",
+            "",
+            "**Sentences to review**",
+        ])
+        lines.extend(f"{index}. {sentence}" for index, sentence in enumerate(split_sentences(result.get("text", "")), 1))
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_report(results: list[dict]) -> str:
     lines = [
         "# Jev blog writing review",
@@ -206,6 +240,7 @@ def main() -> int:
     parser.add_argument("--state", choices=("full", "body"), default="body")
     parser.add_argument("--review-report", required=True, help="write the Markdown review report")
     parser.add_argument("--shortlist-report", help="write only paragraphs selected for human rewriting")
+    parser.add_argument("--sentence-report", help="write a sentence-level drill-down of shortlisted paragraphs")
     parser.add_argument("--generic-threshold", type=float, default=0.7, help="generic-language threshold for the shortlist (default: 0.7)")
     args = parser.parse_args()
     try:
@@ -240,6 +275,9 @@ def main() -> int:
         if args.shortlist_report:
             with open(args.shortlist_report, "w", encoding="utf-8") as shortlist_file:
                 shortlist_file.write(render_shortlist_report(results, args.generic_threshold))
+        if args.sentence_report:
+            with open(args.sentence_report, "w", encoding="utf-8") as sentence_file:
+                sentence_file.write(render_sentence_report(results, args.generic_threshold))
     except (OSError, ValueError, urllib.error.HTTPError, urllib.error.URLError) as error:
         print(f"error: {error}", file=__import__("sys").stderr)
         return 1
