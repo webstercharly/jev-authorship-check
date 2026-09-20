@@ -48,6 +48,22 @@ python3 jev_check.py article.md --granularity paragraph --state body
 
 Chunked output is one JSON object per line and includes the section name, paragraph index, chunk position and word count. Add `--include-text` when you want the chunk text in the output.
 
+## Generate an editorial review report
+
+Use the structured Jev signals to identify paragraphs that need more truthful
+specificity or concrete evidence:
+
+```bash
+python3 jev_check.py article.md \
+  --granularity paragraph \
+  --state body \
+  --review-report review.md
+```
+
+The report includes the paragraph text, raw signal values, a local editorial
+diagnosis and a question to guide revision. It does not rewrite text or try to
+optimise for detector behaviour. The source file is unchanged.
+
 ## Run a batch
 
 Pass several files directly:
