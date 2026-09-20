@@ -95,6 +95,17 @@ generic-language signal. It does not use an AI-authorship label as a reason to
 rewrite. The full paragraph is included with an editorial question so short
 sentences are judged in context.
 
+To split those shortlisted paragraphs into numbered sentences for a more
+focused manual rewrite pass, add:
+
+```bash
+  --sentence-report sentence-rewrite-drilldown.md
+```
+
+The sentence report does not make new sentence-level Jev judgements. It keeps
+the paragraph-level reason and question, then breaks the selected paragraph
+into sentences as a navigation aid.
+
 ## Run a batch
 
 Pass several files directly:
